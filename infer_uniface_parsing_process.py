@@ -4,6 +4,7 @@ Module that implements the core logic of algorithm execution.
 import copy
 import os
 import cv2
+import numpy as np
 from ikomia import core, dataprocess
 from uniface.visualization import vis_parsing_maps
 from .models.model_loader import create_parser
@@ -62,9 +63,7 @@ class InferUnifaceParsing(dataprocess.CSemanticSegmentationTask):
     def __init__(self, name, param):
         dataprocess.CSemanticSegmentationTask.__init__(self, name)
         # Add input/output of the algorithm here
-        # Input: Image
-        # Output 0: Semantic segmentation (from parent class)
-        # Output 1: Visualization image overlay
+
         self.add_output(dataprocess.CImageIO())
 
         # Create parameters object
@@ -142,15 +141,36 @@ class InferUnifaceParsing(dataprocess.CSemanticSegmentationTask):
             self._load_model()
             param.update = False
 
-        # Parse the face to get segmentation mask
-        mask = self.parser.parse(src_image)
+        # Check for graphics input (bounding boxes from face detector)
+        graphics_input = self.get_input(1)
+        items = graphics_input.get_items()
+        bboxes = []
+
+        # Extract bounding boxes from graphics input
+        for item in items:
+            if item.get_type() == core.GraphicsItem.RECTANGLE:
+                # get_bounding_rect() returns [x, y, width, height]
+                bbox_rect = item.get_bounding_rect()
+                x1 = bbox_rect[0]
+                y1 = bbox_rect[1]
+                x2 = x1 + bbox_rect[2]  # x + width
+                y2 = y1 + bbox_rect[3]  # y + height
+                bboxes.append([x1, y1, x2, y2])
+
+        # Set class names for semantic segmentation output
+        self.set_names(self.class_names)
+
+        # Process based on whether we have bounding boxes
+        if len(bboxes) > 0:
+            # Mode 1: Process each face individually (better for distant shots)
+            mask = self._process_faces_individually(src_image, bboxes)
+        else:
+            # Mode 2: Process entire image (original behavior, works well for close-ups)
+            mask = self.parser.parse(src_image)
 
         if mask is None:
             self.end_task_run()
             return
-
-        # Set class names for semantic segmentation output
-        self.set_names(self.class_names)
 
         # Set the segmentation mask to output 0 (from parent CSemanticSegmentationTask)
         self.set_mask(mask)
@@ -160,6 +180,82 @@ class InferUnifaceParsing(dataprocess.CSemanticSegmentationTask):
 
         # Call end_task_run() to finalize process
         self.end_task_run()
+
+    def _process_faces_individually(self, src_image, bboxes):
+        """
+        Process each face region individually and combine results.
+        This works better for distant shots where faces are small.
+
+        Args:
+            src_image: Full source image
+            bboxes: List of bounding boxes [[x1, y1, x2, y2], ...]
+
+        Returns:
+            Combined segmentation mask for the full image
+        """
+        h, w = src_image.shape[:2]
+        # Initialize full mask with background (class 0)
+        full_mask = np.zeros((h, w), dtype=np.uint8)
+
+        for bbox in bboxes:
+            x1, y1, x2, y2 = bbox
+
+            # Add padding around the face (20% margin)
+            margin = 0.2
+            face_w = x2 - x1
+            face_h = y2 - y1
+            pad_x = int(face_w * margin)
+            pad_y = int(face_h * margin)
+
+            # Calculate crop coordinates with padding, ensuring they stay within image bounds
+            crop_x1 = max(0, int(x1 - pad_x))
+            crop_y1 = max(0, int(y1 - pad_y))
+            crop_x2 = min(w, int(x2 + pad_x))
+            crop_y2 = min(h, int(y2 + pad_y))
+
+            # Crop face region
+            face_crop = src_image[crop_y1:crop_y2, crop_x1:crop_x2]
+
+            if face_crop.size == 0:
+                continue
+
+            # Parse the cropped face
+            face_mask = self.parser.parse(face_crop)
+
+            if face_mask is None:
+                continue
+
+            # Get the actual crop dimensions
+            actual_crop_h = crop_y2 - crop_y1
+            actual_crop_w = crop_x2 - crop_x1
+
+            # Resize face_mask to match crop size if needed (parser might resize internally)
+            if face_mask.shape[0] != actual_crop_h or face_mask.shape[1] != actual_crop_w:
+                face_mask = cv2.resize(face_mask, (actual_crop_w, actual_crop_h),
+                                       interpolation=cv2.INTER_NEAREST)
+
+            # Map the face mask back to full image coordinates
+            # Ensure we don't exceed image bounds
+            mask_y1 = crop_y1
+            mask_y2 = min(crop_y1 + actual_crop_h, h)
+            mask_x1 = crop_x1
+            mask_x2 = min(crop_x1 + actual_crop_w, w)
+
+            # Adjust face_mask if bounds were clipped
+            mask_h = mask_y2 - mask_y1
+            mask_w = mask_x2 - mask_x1
+
+            if face_mask.shape[0] != mask_h or face_mask.shape[1] != mask_w:
+                face_mask = face_mask[:mask_h, :mask_w]
+
+            # Place face mask into full mask
+            # For overlapping regions, use maximum to combine masks (non-zero values take precedence)
+            full_mask[mask_y1:mask_y2, mask_x1:mask_x2] = np.maximum(
+                full_mask[mask_y1:mask_y2, mask_x1:mask_x2],
+                face_mask
+            )
+
+        return full_mask
 
 
 class InferUnifaceParsingFactory(dataprocess.CTaskFactory):
