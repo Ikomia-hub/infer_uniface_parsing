@@ -48,7 +48,7 @@ wf = Workflow()
 algo = wf.add_task(name="infer_uniface_parsing", auto_connect=True)
 
 # Run on your image  
-wf.run_on(url="https://github.com/Ikomia-dev/notebooks/blob/main/examples/img/img_portrait_5.jpg?raw=true")
+wf.run_on(url="https://raw.githubusercontent.com/Ikomia-dev/notebooks/refs/heads/main/examples/img/img_portrait_5.jpg")
 
 # Display results
 display(algo.get_image_with_mask()) # Visualization overlay
