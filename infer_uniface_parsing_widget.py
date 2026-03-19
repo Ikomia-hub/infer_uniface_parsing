@@ -1,12 +1,13 @@
 """
 Module that implements the UI widget of the algorithm.
 """
+# PyQt GUI framework
+from PyQt6.QtWidgets import *
+
 from ikomia import core, dataprocess
 from ikomia.utils import pyqtutils, qtconversion
-from infer_uniface_parsing.infer_uniface_parsing_process import InferUnifaceParsingParam
 
-# PyQt GUI framework
-from PyQt5.QtWidgets import *
+from infer_uniface_parsing.infer_uniface_parsing_process import InferUnifaceParsingParam
 
 
 class InferUnifaceParsingWidget(core.CWorkflowTaskWidget):
@@ -27,8 +28,7 @@ class InferUnifaceParsingWidget(core.CWorkflowTaskWidget):
         self.grid_layout = QGridLayout()
 
         # Model name combo box
-        self.combo_model = pyqtutils.append_combo(
-            self.grid_layout, "Model name")
+        self.combo_model = pyqtutils.append_combo(self.grid_layout, "Model name")
         self.combo_model.addItem("resnet18")
         self.combo_model.addItem("resnet34")
         self.combo_model.setCurrentText(self.parameters.model_name)

@@ -3,10 +3,12 @@ Module that implements the core logic of algorithm execution.
 """
 import copy
 import os
+
 import cv2
 import numpy as np
+
 from ikomia import core, dataprocess
-from uniface.visualization import vis_parsing_maps
+
 from .models.model_loader import create_parser
 
 
@@ -280,7 +282,7 @@ class InferUnifaceParsingFactory(dataprocess.CTaskFactory):
         self.info.license = "MIT License"
 
         # Ikomia API compatibility
-        self.info.min_ikomia_version = "0.15.0"
+        self.info.min_ikomia_version = "0.16.0"
 
         # URL of documentation
         self.info.documentation_link = "https://yakhyo.github.io/uniface/"
